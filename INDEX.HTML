@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>বিদ্যালয় উপস্থিতি শীট</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'SolaimanLipi', sans-serif;
+      margin: 20px;
+      background-color: #f0f4f8;
+    }
+    .school-header {
+      background-color: #ffffff;
+      border-left: 6px solid #1976d2;
+      padding: 25px 30px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      max-width: 960px;
+      margin-left: auto;
+      margin-right: auto;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+    }
+    .school-header h1 {
+      font-size: 32px;
+      margin-bottom: 15px;
+      color: #0d47a1;
+      border-bottom: 2px solid #90caf9;
+      padding-bottom: 10px;
+    }
+    .school-header p {
+      margin: 8px 0;
+      font-size: 18px;
+      color: #444;
+    }
+    .info-label {
+      font-weight: bold;
+      color: #1a237e;
+      display: inline-block;
+      width: 160px;
+    }
+    .controls {
+      max-width: 960px;
+      margin: 10px auto;
+      text-align: center;
+    }
+    .controls input, .controls select {
+      padding: 6px;
+      margin: 5px;
+      font-size: 14px;
+    }
+    .controls button {
+      margin: 5px;
+      padding: 6px 12px;
+      border-radius: 5px;
+      border: none;
+      background-color: #1976d2;
+      color: white;
+      cursor: pointer;
+    }
+    .status-btn {
+      padding: 4px 8px;
+      margin: 2px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+    }
+    .status-btn.present { background-color: #4caf50; color: #fff; }
+    .status-btn.late { background-color: #ff9800; color: #fff; }
+    .status-btn.absent { background-color: #f44336; color: #fff; }
+    .status-btn.leave { background-color: #9c27b0; color: #fff; }
+    .low-attendance { background-color: #ffe5e5; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background-color: #fff;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: center;
+    }
+    th {
+      background-color: #2196f3;
+      color: #fff;
+    }
+    .student-photo {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+    }
+    #chartContainer {
+      max-width: 960px;
+      margin: 20px auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="school-header">
+    <h1>পিসি জোন একাডেমী</h1>
+    <p><span class="info-label">ঠিকানা:</span> লক্ষী স্টেট, গেনির মুর ,ভালুকা ,ময়মন্সিঙ্ঘ</p>
+    <p><span class="info-label">ফোন নম্বর:</span>০১৭২৬৪৬০৬৫৬</p>
+    <p><span class="info-label">EIIN নম্বর:</span> ১২৩৪৫৬</p>
+    <p><span class="info-label">শিক্ষক:</span> জনাব আবু নুমান</p>
+  </div>
+
+  <div class="controls">
+    <input type="date" id="selected-date">
+    <select id="month-select"></select>
+    <input type="text" id="searchBox" placeholder="সার্চ (রোল/নাম/শাখা)">
+    <br>
+    <input type="text" id="student-name" placeholder="নাম">
+    <input type="text" id="student-roll" placeholder="রোল">
+    <input type="text" id="student-class" placeholder="শ্রেণি">
+    <input type="text" id="student-section" placeholder="শাখা">
+    <input type="text" id="student-guardian" placeholder="অভিভাবক নম্বর">
+    <input type="file" id="student-photo">
+    <button onclick="addStudent()">ছাত্র যোগ করুন</button>
+    <button onclick="downloadExcel()">Excel রিপোর্ট</button>
+    <button onclick="downloadPDF()">PDF রিপোর্ট</button>
+    <button onclick="window.print()">প্রিন্ট করুন</button>
+  </div>
+
+  <table id="attendance-table">
+    <thead>
+      <tr>
+        <th>ছবি</th>
+        <th>রোল</th>
+        <th>নাম</th>
+        <th>শ্রেণি</th>
+        <th>শাখা</th>
+        <th>অভিভাবক</th>
+        <th>উপস্থিত</th>
+        <th>অনুপস্থিত</th>
+        <th>অ্যাকশন</th>
+        <th>মুছুন</th>
+      </tr>
+    </thead>
+    <tbody id="attendance-body"></tbody>
+  </table>
+
+  <div id="chartContainer">
+    <canvas id="attendanceChart"></canvas>
+  </div>
+
+  <script>
+    const students = JSON.parse(localStorage.getItem('students') || '[]');
+    const attendance = JSON.parse(localStorage.getItem('attendance') || '{}');
+
+    document.getElementById("month-select").innerHTML = [...Array(12)].map((_, i) => {
+      const d = new Date();
+      return `<option value="${i+1}" ${i===d.getMonth()?"selected":""}>${d.toLocaleString('bn-BD', { month: 'long' })}</option>`
+    }).join('');
+
+    document.getElementById("searchBox").addEventListener('input', renderTable);
+
+    function addStudent() {
+      const name = document.getElementById("student-name").value;
+      const roll = document.getElementById("student-roll").value;
+      const cls = document.getElementById("student-class").value;
+      const section = document.getElementById("student-section").value;
+      const guardian = document.getElementById("student-guardian").value;
+      const photoFile = document.getElementById("student-photo").files[0];
+
+      if (!name || !roll) return alert("তথ্য দিন");
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        students.push({ name, roll, class: cls, section, guardian, photo: e.target.result });
+        localStorage.setItem('students', JSON.stringify(students));
+        renderTable();
+      };
+      if(photoFile) reader.readAsDataURL(photoFile);
+      else {
+        students.push({ name, roll, class: cls, section, guardian, photo: '' });
+        localStorage.setItem('students', JSON.stringify(students));
+        renderTable();
+      }
+    }
+
+    function markAttendance(roll, status) {
+      const date = document.getElementById("selected-date").value;
+      if (!date) return alert("তারিখ দিন");
+      attendance[roll] = attendance[roll] || {};
+      attendance[roll][date] = status;
+      localStorage.setItem('attendance', JSON.stringify(attendance));
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("attendance-body");
+      tbody.innerHTML = "";
+      const search = document.getElementById("searchBox").value.toLowerCase();
+      students.filter(s => s.name.toLowerCase().includes(search) || s.roll.includes(search) || s.section.toLowerCase().includes(search))
+      .sort((a,b)=>a.roll - b.roll)
+      .forEach(s => {
+        const date = document.getElementById("selected-date").value;
+        const status = (attendance[s.roll] || {})[date];
+        const presentCount = Object.values(attendance[s.roll] || {}).filter(v=>v==='present'||v==='late').length;
+        const absentCount = Object.values(attendance[s.roll] || {}).filter(v=>v==='absent'||v==='leave').length;
+        const row = document.createElement('tr');
+        if (presentCount < 10) row.classList.add("low-attendance");
+        row.innerHTML = `
+          <td><img src="${s.photo}" class="student-photo"></td>
+          <td>${s.roll}</td>
+          <td>${s.name}</td>
+          <td>${s.class}</td>
+          <td>${s.section}</td>
+          <td>${s.guardian}</td>
+          <td>${presentCount}</td>
+          <td>${absentCount}</td>
+          <td>
+            <button class="status-btn present" onclick="markAttendance('${s.roll}', 'present')">উপস্থিত</button>
+            <button class="status-btn late" onclick="markAttendance('${s.roll}', 'late')">দেরি</button>
+            <button class="status-btn absent" onclick="markAttendance('${s.roll}', 'absent')">অনুপস্থিত</button>
+            <button class="status-btn leave" onclick="markAttendance('${s.roll}', 'leave')">ছুটি</button>
+          </td>
+          <td><button onclick="deleteStudent('${s.roll}')">❌</button></td>
+        `;
+        tbody.appendChild(row);
+      });
+      drawChart();
+    }
+
+    function deleteStudent(roll) {
+      const i = students.findIndex(s => s.roll === roll);
+      students.splice(i, 1);
+      localStorage.setItem('students', JSON.stringify(students));
+      renderTable();
+    }
+
+    function downloadExcel() {
+      const wb = XLSX.utils.book_new();
+      const data = students.map(s => {
+        const total = attendance[s.roll] || {};
+        return [s.roll, s.name, s.class, s.section, s.guardian,
+                Object.values(total).filter(x=>x==='present'||x==='late').length,
+                Object.values(total).filter(x=>x==='absent'||x==='leave').length];
+      });
+      const ws = XLSX.utils.aoa_to_sheet([["রোল","নাম","শ্রেণি","শাখা","অভিভাবক","উপস্থিত","অনুপস্থিত"], ...data]);
+      XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+      XLSX.writeFile(wb, "attendance.xlsx");
+    }
+
+    function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text("বিদ্যালয়ের উপস্থিতি রিপোর্ট", 20, 10);
+      let y = 20;
+      students.forEach(s => {
+        const d = attendance[s.roll] || {};
+        const present = Object.values(d).filter(x => x==='present'||x==='late').length;
+        const absent = Object.values(d).filter(x => x==='absent'||x==='leave').length;
+        doc.text(`${s.roll} - ${s.name} - উপস্থিত: ${present}, অনুপস্থিত: ${absent}`, 20, y);
+        y += 10;
+      });
+      doc.save("attendance.pdf");
+    }
+
+    function drawChart() {
+      const ctx = document.getElementById('attendanceChart').getContext('2d');
+      const labels = students.map(s=>s.name);
+      const present = students.map(s=>{
+        const data = attendance[s.roll] || {};
+        return Object.values(data).filter(x=>x==='present'||x==='late').length;
+      });
+      const absent = students.map(s=>{
+        const data = attendance[s.roll] || {};
+        return Object.values(data).filter(x=>x==='absent'||x==='leave').length;
+      });
+
+      if(window.chartInstance) window.chartInstance.destroy();
+
+      window.chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'উপস্থিত', backgroundColor: '#4caf50', data: present },
+            { label: 'অনুপস্থিত', backgroundColor: '#f44336', data: absent }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'top' }, title: { display: true, text: 'উপস্থিতি চার্ট' } }
+        }
+      });
+    }
+
+    renderTable();
+  </script>
+</body>
+</html>
